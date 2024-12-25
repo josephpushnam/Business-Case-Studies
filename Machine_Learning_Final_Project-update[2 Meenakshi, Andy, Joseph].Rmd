@@ -1,0 +1,951 @@
+---
+title: "Final Project Machine Learning"
+author: "Meenakshi Hariharan, Andy Pan, Joseph Noronha Pushnam"
+date: "2024-12-13"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 2
+---
+
+**KEY QUESTIONS**
+
+1.  Which machine learning methods did you implement?
+
+    -   Logistics Regression, Penalized Regression, Neural Network (Caret, Torch, Keras), Ensemble, XGBoost, and Random Forest.
+
+2.  Discuss the key contribution of each method to your analysis. If a method didn't contribute, discuss why it didn't. A sentence or two for each method is plenty.
+
+    -   Logistics Regression - This model provided an initial understanding of the factors contributing to churn, highlithing the importance of variables like placements, company contacts, and retainer accounts. It helps answer, how significant each variable is in predicting churn. However, it struggled to capture complex variable interactions.
+
+    -   Penalized Regression (Lasso and Ridge) -
+
+        -   **Penalized Regression Results:** Both Ridge and Lasso regression models outperformed the baseline logistic regression in terms of predictive accuracy. Ridge regression improved model stability by reducing multicollinearity, while Lasso regression identified a subset of the most influential features, simplifying the model for practical use.
+
+            **Performance Metrics:**
+
+            -   **Logistic Regression:** Accuracy: 80.6%, AUC: 0.7623
+
+            -   **Ridge Regression:** Accuracy: 79.7%, AUC: 0.7723
+
+            -   **Lasso Regression:** Accuracy: 80.6%, AUC: 0.7649
+
+            These results highlight the importance of regularization in enhancing model performance while maintaining interpretability. Figures and tables summarizing the model coefficients and ROC curves are included to support these findings.
+
+        -   To help improve the performance of these model: Incorporate additional data sources and advanced modeling techniques to further improve predictive accuracy. The data set/aggregate provided too could be more refined.
+
+    -   Neural Network (Caret, Torch, Keras) - By the end, the training accuracy increases significantly, suggesting that the model is learning the specific patterns in the training data (and potentially even noise).
+
+    -   
+
+        (1) Ensemble, (2) XGBoost - (1) Combined the strengths of multiple models to deliver robust and balanced results. (2) Delivered top-tier performance with high accuracy and interpretable variable importance.
+
+    -   Random Forest / Stacked Model - Achieved the highest ROC-AUC by effectively integrating predictions from diverse base models.
+
+3.  Did all methods support your conclusions or did some provide conflicting results? If so they provided conflicting results, how did you reconcile the differences?
+
+We believe not all methods fully supported the conclusions, namely logistics regression and penalized which fell below the average accepted accuracy of 89-96%. Everything else did fine.
+
+**Performance Metrics:**
+
+-   **Logistic Regression:** Accuracy: 80.6%, AUC: 0.7623
+
+-   **Ridge Regression:** Accuracy: 79.7%, AUC: 0.7723
+
+-   **Lasso Regression:** Accuracy: 80.6%, AUC: 0.7649
+
+These results highlight the importance of regularization in enhancing model performance while maintaining interpretability. Figures and tables summarizing the model coefficients and ROC curves are included to support these findings. Ultimately, all methods contributed to the overall conclusions by highlighting the significant predictors of churn, but the more advanced models provided a superior performance for prediction tasks. This can be seen in the ensemble method which included the glm or logistics regression to improve its accuracy and AUC performance along side with XGBoost and Random Forest which was included in the stacked model.
+
+# Load libraries
+
+```{r}
+# Load necessary libraries
+library(tidyverse)
+library(caret)
+library(corrplot)
+library(pROC)
+library(glmnet)
+library(mlbench)
+library(doParallel)
+library(dplyr)
+registerDoParallel(cores = 14)
+library(UBL)
+library(tensorflow)
+library(reticulate)
+library(keras)
+library(xgboost)
+library(ggplot2)
+library(caretEnsemble)
+ls("package:UBL")
+```
+
+# Load dataset
+
+```{r}
+getwd()
+dataset <- read.csv("C:/Users/Joseph/OneDrive/Desktop/UoU/DB_R/3. Fall 2024/Machine Learning/Group Project/RZ-Company-churn1.csv")
+```
+
+# EDA
+
+```{r}
+# View basic structure and summary
+str(dataset)
+summary(dataset)
+
+# Check for missing values
+colSums(is.na(dataset))
+
+# Visualize target variable distribution
+ggplot(dataset, aes(x = as.factor(Company.Churn.))) +
+  geom_bar(fill = "steelblue") +
+  labs(title = "Distribution of Company Churn", x = "Company Churn", y = "Count")
+
+ggplot(dataset, aes(x = as.factor(Order.Churn.))) +
+  geom_bar(fill = "coral") +
+  labs(title = "Distribution of Order Churn", x = "Order Churn", y = "Count")
+
+# Correlation matrix for numerical variables
+numerical_vars <- dataset %>% select_if(is.numeric)
+cor_matrix <- cor(numerical_vars)
+
+# Plot correlation matrix
+corrplot(cor_matrix, method = "circle", type = "lower", tl.cex = 0.8)
+
+str(dataset)
+```
+
+# Logistic regression model
+
+```{r}
+# Encode categorical variables
+dataset$Current.Job.Status <- as.factor(dataset$Current.Job.Status)
+dataset$Current.Company.Status <- as.factor(dataset$Current.Company.Status)
+
+# Split the data into training and testing sets
+set.seed(123)
+train_index <- createDataPartition(dataset$Order.Churn., p = 0.7, list = FALSE)
+train_data <- dataset[train_index, ]
+test_data <- dataset[-train_index, ]
+
+train_data <- train_data[,-c(7,9)]
+test_data <- test_data[,-c(7,9)]
+
+# Fit logistic regression model
+log_model <- glm(Order.Churn. ~ ., data = train_data, family = "binomial")
+
+# Summary of the model
+summary(log_model)
+
+# Make predictions on the test data
+test_data$predictions <- predict(log_model, newdata = test_data, type = "response")
+test_data$predicted_class <- ifelse(test_data$predictions > 0.5, 1, 0)
+
+# Evaluate model performance
+confusionMatrix(as.factor(test_data$predicted_class), as.factor(test_data$Order.Churn.))
+```
+
+```{r}
+# Extract coefficients from the model
+coefficients <- as.data.frame(summary(log_model)$coefficients)
+coefficients$Variable <- rownames(coefficients)
+rownames(coefficients) <- NULL
+
+# Filter significant variables (optional)
+significant_vars <- coefficients %>%
+  filter(`Pr(>|z|)` < 0.05)
+
+# Plot coefficients
+ggplot(coefficients, aes(x = reorder(Variable, Estimate), y = Estimate)) +
+  geom_bar(stat = "identity", fill = "steelblue") +
+  coord_flip() +
+  labs(title = "Logistic Regression Coefficients",
+       x = "Variable",
+       y = "Coefficient")
+```
+
+```{r}
+# Generate ROC curve
+roc_obj <- roc(test_data$Order.Churn., test_data$predictions)
+plot(roc_obj, col = "blue", main = "ROC Curve for Logistic Regression")
+auc(roc_obj) # Calculate AUC
+```
+
+```{r}
+# Generate confusion matrix
+conf_matrix <- table(Predicted = test_data$predicted_class, Actual = test_data$Order.Churn.)
+
+# Plot heatmap
+library(reshape2)
+conf_matrix_df <- as.data.frame(as.table(conf_matrix))
+ggplot(conf_matrix_df, aes(Actual, Predicted, fill = Freq)) +
+  geom_tile(color = "white") +
+  scale_fill_gradient(low = "lightblue", high = "darkblue") +
+  labs(title = "Confusion Matrix Heatmap",
+       x = "Actual",
+       y = "Predicted") +
+  geom_text(aes(label = Freq), color = "white")
+```
+
+# Penalized Regression
+
+## Ridge Regression
+
+```{r}
+
+# Cleaning Dataset
+new_dataset <- dataset[,-c(7,9)]
+
+# Ensure consistent variable structure
+full_model_matrix <- model.matrix(Order.Churn. ~ ., data = new_dataset)
+
+# Extract the same columns for train and test datasets
+x_train <- full_model_matrix[train_index, -1]
+x_test <- full_model_matrix[-train_index, -1]
+
+# Define y_train and y_test
+y_train <- train_data$Order.Churn.
+y_test <- test_data$Order.Churn.
+
+# Ridge Regression (alpha = 0)
+set.seed(123)
+ridge_model <- cv.glmnet(x_train, y_train, alpha = 0, family = "binomial")
+best_lambda_ridge <- ridge_model$lambda.min
+
+# Predict with Ridge
+ridge_predictions <- predict(ridge_model, s = best_lambda_ridge, newx = x_test, type = "response")
+ridge_pred_class <- ifelse(ridge_predictions > 0.5, 1, 0)
+
+# Evaluate Ridge performance
+confusionMatrix(as.factor(ridge_pred_class), as.factor(y_test))
+```
+
+## Lasso Regression
+
+```{r}
+# Lasso Regression (alpha = 1)
+set.seed(123)
+lasso_model <- cv.glmnet(x_train, y_train, alpha = 1, family = "binomial")
+best_lambda_lasso <- lasso_model$lambda.min
+
+# Predict using Lasso
+lasso_predictions <- predict(lasso_model, s = best_lambda_lasso, newx = x_test, type = "response")
+lasso_pred_class <- ifelse(lasso_predictions > 0.5, 1, 0)
+
+# Evaluate Lasso performance
+confusionMatrix(as.factor(lasso_pred_class), as.factor(y_test))
+```
+
+## Coefficient Plots for Ridge and Lasso
+
+```{r}
+# Ridge coefficients
+ridge_coefs <- as.data.frame(as.matrix(coef(ridge_model, s = best_lambda_ridge)))
+ridge_coefs$Feature <- rownames(ridge_coefs)
+colnames(ridge_coefs)[1] <- "Ridge"
+
+# Lasso coefficients
+lasso_coefs <- as.data.frame(as.matrix(coef(lasso_model, s = best_lambda_lasso)))
+lasso_coefs$Feature <- rownames(lasso_coefs)
+colnames(lasso_coefs)[1] <- "Lasso"
+
+# Combine and plot
+combined_coefs <- merge(ridge_coefs, lasso_coefs, by = "Feature", all = TRUE)
+combined_coefs <- combined_coefs[combined_coefs$Feature != "(Intercept)", ]
+
+library(ggplot2)
+ggplot(combined_coefs, aes(x = Feature)) +
+  geom_bar(aes(y = Ridge), stat = "identity", fill = "blue", alpha = 0.5) +
+  geom_bar(aes(y = Lasso), stat = "identity", fill = "red", alpha = 0.5) +
+  coord_flip() +
+  labs(title = "Comparison of Coefficients (Ridge vs Lasso)",
+       x = "Features",
+       y = "Coefficient Value")
+```
+
+## AUC-ROC curves
+
+```{r}
+# Ridge ROC
+ridge_roc <- roc(y_test, as.numeric(ridge_predictions))
+plot(ridge_roc, col = "blue", main = "ROC Curve - Ridge Regression")
+auc(ridge_roc)
+
+# Lasso ROC
+lasso_roc <- roc(y_test, as.numeric(lasso_predictions))
+plot(lasso_roc, col = "red", main = "ROC Curve - Lasso Regression")
+auc(lasso_roc)
+```
+
+# Neural NetWork
+
+```{r data reupload for Neural Network}
+# Load the dataset
+rz_data <- dataset
+
+# NA Count
+sum(is.na(rz_data))
+```
+
+```{r Data Preparation for Neural Network}
+# Check for missing values
+summary(rz_data)
+
+# Checking for data structure
+str(rz_data)
+# Replace missing values with column means for numerical columns
+clean_rz_data <- rz_data  # Create a copy to keep the original data intact
+
+
+# Create a copy of the original data to preserve it
+clean_rz_data <- rz_data  
+
+# Replace missing values with column means for numerical columns where applicable
+# Convert and clean numerical columns
+clean_rz_data$X..submissions <- as.numeric(clean_rz_data$X..submissions)
+clean_rz_data$X..recruiters.submitting.in.job.lifetime <- as.numeric(clean_rz_data$X..recruiters.submitting.in.job.lifetime)
+clean_rz_data$X..client.interviews.conducted <- as.numeric(clean_rz_data$X..client.interviews.conducted)
+clean_rz_data$X..placements <- as.numeric(clean_rz_data$X..placements)
+clean_rz_data$Retainer.Amount <- as.numeric(clean_rz_data$Retainer.Amount)
+clean_rz_data$Flat.Fee <- as.numeric(clean_rz_data$Flat.Fee)
+clean_rz_data$Age.of.job.since.updated <- as.numeric(clean_rz_data$Age.of.job.since.updated)
+clean_rz_data$Age.of.job..Created.to.Status.Change. <- as.numeric(clean_rz_data$Age.of.job..Created.to.Status.Change.)
+clean_rz_data$Age.of.Job..Since.Created. <- as.numeric(clean_rz_data$Age.of.Job..Since.Created.)
+
+# Remove commas and convert columns with formatted numbers to numeric
+clean_rz_data$X..company.contacts <- as.numeric(gsub(",", "", clean_rz_data$X..company.contacts))
+clean_rz_data$Finder.s.fee <- as.numeric(clean_rz_data$Finder.s.fee)
+
+# Convert binary columns to factors
+clean_rz_data$Company.Churn. <- as.factor(clean_rz_data$Company.Churn.)
+clean_rz_data$Order.Churn. <- as.factor(clean_rz_data$Order.Churn.)
+
+# If applicable, convert date columns (adjust date format as needed)
+# Assuming date columns in the dataset require conversion
+# clean_rz_data$Updated <- as.Date(clean_rz_data$Updated, format = "%m/%d/%Y")
+# clean_rz_data$Created <- as.Date(clean_rz_data$Created, format = "%m/%d/%Y")
+
+# Summarize the cleaned data
+summary(clean_rz_data)
+
+summary(clean_rz_data)
+
+# NA Checker 
+sum(is.na(clean_rz_data))
+```
+
+```{r NA Imputation second round - safety check}
+# Replace NA values with column means
+clean_rz_data <- clean_rz_data %>%
+  mutate(across(where(is.numeric), ~ ifelse(is.na(.), mean(., na.rm = TRUE), .)))
+
+summary(clean_rz_data)
+
+# NA Checker 
+sum(is.na(clean_rz_data))
+```
+
+```{r Checking Retainer dollar imputation}
+# checking on unique types of retainer amounts from average imputation for NAs
+check1 <- clean_rz_data %>% 
+  group_by(Retainer.Amount) %>%
+  summarise(count = n())
+
+print(check1)
+```
+
+```{r Checking on retainer amount}
+# Summarize the data to count each unique value in the 'retainer' column
+retainer_summary <- clean_rz_data %>%
+  group_by(Retainer.Amount) %>%
+  summarise(count = n()) %>%
+  arrange(desc(count))
+
+ggplot(clean_rz_data, aes(x = as.factor(Retainer.Amount))) +
+  geom_bar(fill = "steelblue") +
+  labs(title = "Distribution of Retainer Amount", x = "Retainer Amount", y = "Count")
+
+
+# View the summary table
+print(retainer_summary)
+
+str(clean_rz_data)
+```
+
+```{r Factorizing second round (Quality check)}
+# Convert relevant columns to factors
+# Convert `X..Candidates` to numeric (handle non-numeric values with NA)
+# clean_rz_data$X..Candidates <- suppressWarnings(as.numeric(clean_rz_data$X..Candidates))
+
+# Convert `X..Jobs` to numeric
+# clean_rz_data$X..Jobs <- as.numeric(clean_rz_data$X..Jobs)
+
+# Convert `Updated` to Date format (adjust format as needed)
+# clean_rz_data$Updated <- as.Date(clean_rz_data$Updated, format = "%m/%d/%Y")
+
+# Convert `Created` to Date format (adjust format as needed)
+# clean_rz_data$Created <- as.Date(clean_rz_data$Created, format = "%m/%d/%Y")
+
+# Convert `Age.u.` to numeric
+# clean_rz_data$Age.u. <- as.numeric(clean_rz_data$Age.u.)
+
+# Convert `Red.Account.` to a factor
+#clean_rz_data$Red.Account. <- as.factor(clean_rz_data$Red.Account.)
+
+# Remove commas and convert `Age.c.` to numeric
+clean_rz_data$Age.of.job.since.updated  <- as.numeric(gsub(",", "", clean_rz_data$Age.of.job.since.updated ))
+clean_rz_data$ Age.of.job..Created.to.Status.Change. <- as.numeric(gsub(",", "", clean_rz_data$ Age.of.job..Created.to.Status.Change.))
+clean_rz_data$Age.of.Job..Since.Created. <- as.numeric(gsub(",", "", clean_rz_data$Age.of.Job..Since.Created.))
+
+# Convert `Retainer.Amount` to numeric
+clean_rz_data$Retainer.Amount <- as.numeric(clean_rz_data$Retainer.Amount)
+
+
+# Convert `Churn.` to a factor
+clean_rz_data$Company.Churn. <- as.factor(clean_rz_data$Company.Churn.)
+clean_rz_data$Order.Churn. <- as.factor(clean_rz_data$Order.Churn.)
+
+# Verify the structure of the updated data
+str(clean_rz_data)
+summary(clean_rz_data)
+```
+
+```{r checking for data balance and other breakdowns}
+# Drop irrelevant columns
+nn_set <- clean_rz_data
+
+# Removing irrelevant columns
+set.seed(123)
+nn1 <- nn_set[,-c(1,2,7,9,14)]
+
+str(nn1)
+# Checking on specific average retainer dollars by # of churn type accounts
+sum_nn <- nn1 %>% 
+  group_by(Order.Churn.) %>%
+  summarise(count = n(), 
+            Average.retainer = mean(Retainer.Amount))
+
+ggplot(nn1, aes(x = as.factor(Order.Churn.))) +
+           geom_bar(fill = "steelblue") +
+           labs(title = "Churn breakdown", x = "Churn", y = "Count")
+       
+       
+print(sum_nn)
+
+summary(nn1)
+```
+
+```{r churn data}
+# Balancing the dataset churn and not-churn 50-50
+
+# SMOTE creates synthetic samples for the minority class by interpolating between existing samples.
+
+# Apply SMOTE to balance the dataset. This creates synthetic data for minority class 1 and triples the amount to match the majority class 0. Using K nearest neighbor for this.
+minority_class <- nn1 %>% filter(Order.Churn. == 0)
+majority_class <- nn1 %>% filter(Order.Churn. == 1)
+
+# Repeat rows of the minority class to match majority class size
+oversampled_minority <- minority_class %>%
+  sample_n(size = nrow(majority_class), replace = TRUE)
+
+# Combine the oversampled minority class with the majority class
+balanced_data <- bind_rows(majority_class, oversampled_minority)
+
+# Shuffle the rows
+balanced_data <- balanced_data %>% sample_frac(1)
+
+# Check class distribution
+table(balanced_data$Order.Churn.)
+
+sum_nn <- balanced_data %>% 
+  group_by(Order.Churn.) %>%
+  summarise(count = n(), 
+            Average.retainer = mean(Retainer.Amount))
+
+print(sum_nn)
+
+ggplot(balanced_data, aes(x = as.factor(Order.Churn.))) +
+           geom_bar(fill = "steelblue") +
+           labs(title = "Churn breakdown", x = "Churn", y = "Count")
+
+sum(is.na(balanced_data))
+```
+
+```{r train and test sets}
+inTrain <- createDataPartition(balanced_data$Order.Churn., p = .8, list=FALSE)
+train <- balanced_data[c(inTrain),]
+test <- balanced_data[-inTrain,]
+```
+
+```{r Data prep checkpoint}
+# Check structure of the original data
+str(balanced_data)
+
+# Verify row alignment for selected indices
+head(balanced_data[c(inTrain), ])  # Should match rows in 'train'
+```
+
+```{r predictors and outcomes}
+str(train)
+
+# Train
+train_predictor <- train[,-c(10)]
+train_outcome <- train [,10]
+train_outcome <- ifelse(train_outcome == 0, "no", "yes")
+train_outcome <- as.factor(train_outcome)
+str(train_outcome)
+# Train Length check. True
+nrow(train_predictor) == length(train_outcome)
+
+# Check train_predictor
+str(train_predictor)
+
+# Check train_outcome
+str(train_outcome)
+
+# Test
+test_predictor <- test[,-c(10)]
+test_outcome <- test [,10]
+test_outcome <- ifelse(test_outcome == 0, "no", "yes")
+test_outcome <- as.factor(test_outcome)
+
+# NA Checker 
+summary(train_outcome)
+sum(is.na(train_outcome))
+```
+
+```{r}
+# Neural Network setup (Caret) for Train Data set.
+
+ctrl <- trainControl(method = "repeatedcv", # cross-validation
+number = 10, # 10 folds
+repeats = 5,
+classProbs = TRUE # report class probability
+)
+
+```
+
+```{r}
+avnnetGrid <- expand.grid(decay = c(.01,.05),
+size = c(15:40),
+bag = FALSE
+)
+```
+
+```{r}
+# Check row counts
+nrow(train_predictor)  # Should return 2518
+length(train_outcome)  # Should also return 2518
+
+
+start_time <- Sys.time()
+# Measure runtime for a single parameter combination
+avnnet_fit <- caret::train(train_predictor, train_outcome,
+method = "avNNet",
+tuneGrid = avnnetGrid,
+trControl = ctrl,
+softmax = TRUE,
+preProc = c("center", "scale"),
+trace = FALSE,
+metric= "Accuracy",
+allowParallel=TRUE,
+maxit = 50)
+end_time <- Sys.time()
+single_runtime <- end_time - start_time
+
+# Estimate total runtime
+total_runtime <- single_runtime * 1050
+print(total_runtime)
+
+```
+
+```{r}
+plot(avnnet_fit)
+```
+
+```{r}
+predicted_outcome <- predict(avnnet_fit, test_predictor)
+postResample(pred = factor(predicted_outcome), obs = factor(test_outcome))
+```
+
+```{r}
+confusionMatrix(data = factor(predicted_outcome),
+reference = factor(test_outcome))$table
+```
+
+```{r}
+# View results from cross-validation
+print(avnnet_fit$results)
+
+# Check resampled results for folds
+print(avnnet_fit$resample)
+
+```
+
+```{r}
+# Trying model on Test Data set (CARET)
+
+# Check row counts
+nrow(train_predictor)  # Should return 2518
+length(train_outcome)  # Should also return 2518
+
+
+start_time <- Sys.time()
+# Measure runtime for a single parameter combination
+avnnet_fit <- caret::train(test_predictor, test_outcome,
+method = "avNNet",
+tuneGrid = avnnetGrid,
+trControl = ctrl,
+softmax = TRUE,
+preProc = c("center", "scale"),
+trace = FALSE,
+metric= "Accuracy",
+allowParallel=TRUE,
+maxit = 50)
+end_time <- Sys.time()
+single_runtime <- end_time - start_time
+
+# Estimate total runtime
+total_runtime <- single_runtime * 1050
+print(total_runtime)
+
+```
+
+```{r}
+plot(avnnet_fit)
+```
+
+```{r}
+predicted_outcome <- predict(avnnet_fit, test_predictor)
+postResample(pred = factor(predicted_outcome), obs = factor(test_outcome))
+```
+
+```{r}
+confusionMatrix(data = factor(predicted_outcome),
+reference = factor(test_outcome))$table
+```
+
+```{r}
+# View results from cross-validation
+print(avnnet_fit$results)
+
+# Check resampled results for folds
+print(avnnet_fit$resample)
+
+```
+
+```{r}
+
+# Train a simple neural network using keras (if you want epoch-level control). This requires Python. To complete this you need to download Git on your PC and then follow the library installations below. Also Session > Restart R when all downloads are completed. Then run Keras and the run the install_Keras(). The functions should run afterwards. 
+
+model <- keras_model_sequential() %>%
+  layer_dense(units = 16, activation = "relu", input_shape = ncol(train_predictor)) %>%
+  layer_dense(units = 2, activation = "softmax")
+
+model %>% compile(
+  optimizer = "adam",
+  loss = "binary_crossentropy",
+  metrics = "accuracy"
+)
+
+# Convert 'yes'/'no' to 1/0
+train_outcome_py <- ifelse(train_outcome == "yes", 1, 0)
+
+
+history <- model %>% fit(
+  x = as.matrix(train_predictor),
+  y = to_categorical(train_outcome_py),
+  epochs = 50,
+  batch_size = 32,
+  validation_split = 0.2
+)
+
+# Plot loss by epoch
+plot(history)
+
+```
+
+```{r}
+# Convert test predictors and outcome to appropriate formats
+x_test <- as.matrix(test_predictor)  # Test features (convert to matrix)
+# Convert 'yes'/'no' to 1/0
+test_outcome_py <- ifelse(test_outcome == "yes", 1, 0)
+y_test <- to_categorical(test_outcome_py)  # Test labels (one-hot encoded)
+
+# Evaluate the model on the test data
+test_metrics <- model %>% evaluate(x_test, y_test, verbose = 0)
+
+# Print test loss and accuracy
+cat("Test Loss:", test_metrics[[1]], "\n")
+cat("Test Accuracy:", test_metrics[[2]], "\n")
+
+```
+
+```{r}
+# Get predictions (probabilities) on test data
+predictions <- model %>% predict(x_test)
+
+# Convert probabilities to class labels
+predicted_classes <- apply(predictions, 1, which.max) - 1  # Subtract 1 for 0-based indexing
+
+# Compare predicted classes with actual labels
+comparison <- data.frame(
+  Actual = as.numeric(test_outcome) - 1,  # Convert factor to numeric
+  Predicted = predicted_classes
+)
+
+# View a few rows of comparison
+head(comparison)
+
+```
+
+TESTING OUT KERAS AND TORCH MODEL DIRECTLY ON TEST SET
+
+### **Code Functionality:**
+
+1.  **Model Definition:**
+
+    -   `keras_model_sequential()` sets up a neural network model sequentially.
+
+    -   **First Layer:** A dense layer with 16 units and ReLU activation. This layer receives input with the shape `ncol(test_predictor)`.
+
+    -   **Second Layer:** The output layer with 2 units and a `softmax` activation for binary classification.
+
+2.  **Compilation:**
+
+    -   `optimizer = "adam"`: Adaptive Momentum optimizer, suitable for efficient training.
+
+    -   `loss = "binary_crossentropy"`: Loss function for binary classification.
+
+    -   `metrics = "accuracy"`: Tracks accuracy during training.
+
+3.  **Data Preparation:**
+
+    -   The outcome variable `test_outcome` is converted to binary integers (`1` for "yes", `0` for "no") using `ifelse`.
+
+    -   Then, `to_categorical()` converts the binary labels into one-hot encoded form (required for softmax).
+
+4.  **Model Training (Fit):**
+
+    -   Training the model with `epochs = 50` means the model will iterate over the data **50 times**.
+
+    -   **Batch size = 32:** The data is divided into mini-batches of size 32, and the model updates weights after each batch.
+
+    -   **Validation Split = 0.2:** 20% of the training data is reserved for validation to check the model’s performance after each epoch.
+
+### **What’s Happening During Epochs?**
+
+1.  During each **epoch**, the model:
+
+    -   Processes all the training data in batches.
+
+    -   Calculates the loss and adjusts weights using backpropagation and the Adam optimizer.
+
+2.  **Training Metrics:**
+
+    -   The **training loss** and **accuracy** improve as the model learns.
+
+    -   The **validation loss** and **accuracy** measure performance on the unseen 20% validation set.
+
+3.  **Expected Patterns:**
+
+    -   Initially, both **training loss** and **validation loss** decrease, and accuracy increases.
+
+    -   If training progresses well, loss stabilizes while accuracy plateaus.
+
+4.  **Potential Issues:**
+
+    -   If **validation loss** starts increasing while training loss keeps decreasing, the model is **overfitting**.
+
+    -   If accuracy remains low or unstable, the model might not be learning effectively due to:
+
+        -   Poor hyperparameters (e.g., learning rate, activation functions).
+
+        -   Insufficient model capacity.
+
+        -   Poor data quality.
+
+```{r}
+# Train a simple neural network using keras (if you want epoch-level control). This requires Python. To complete this you need to download Git on your PC and then follow the library installations below. Also Session > Restart R when all downloads are completed. Then run Keras and the run the install_Keras(). The functions should run afterwards. 
+
+model1 <- keras_model_sequential() %>%
+  layer_dense(units = 16, activation = "relu", input_shape = ncol(test_predictor)) %>%
+  layer_dense(units = 2, activation = "softmax")
+
+model1 %>% compile(
+  optimizer = "adam",
+  loss = "binary_crossentropy",
+  metrics = "accuracy"
+)
+
+# Convert 'yes'/'no' to 1/0
+test_outcome_py <- ifelse(test_outcome == "yes", 1, 0)
+
+
+history1 <- model %>% fit(
+  x = as.matrix(test_predictor),
+  y = to_categorical(test_outcome_py),
+  epochs = 50,
+  batch_size = 32,
+  validation_split = 0.2
+)
+
+# Plot loss by epoch
+plot(history1)
+```
+
+# XG Boost
+
+```{r}
+# Define trainControl with cross-validation
+ctrl <- trainControl(
+  method = "repeatedcv",  # Repeated cross-validation
+  number = 10,           # 10 folds
+  repeats = 3,           # Repeat 3 times
+  classProbs = TRUE,     # Enable class probabilities
+  summaryFunction = twoClassSummary,  # Use ROC as the performance metric
+  verboseIter = FALSE    # Suppress output during training
+)
+
+# Define a tuning grid for XGBoost
+xgb_grid <- expand.grid(
+  nrounds = c(50, 100),           # Number of boosting iterations
+  max_depth = c(3, 6),            # Maximum depth of a tree
+  eta = c(0.1, 0.3),              # Learning rate
+  gamma = 0,                      # Minimum loss reduction
+  colsample_bytree = 0.8,         # Fraction of features for building trees
+  min_child_weight = 1,           # Minimum sum of instance weight for a leaf
+  subsample = 0.8                 # Fraction of samples for each tree
+)
+
+# Train the XGBoost model
+set.seed(123)
+xgb_model <- caret::train(
+  x = train_predictor,
+  y = train_outcome,
+  method = "xgbTree",
+  metric = "ROC",
+  trControl = ctrl,
+  tuneGrid = xgb_grid
+)
+
+
+# Print and summarize the XGBoost model
+print(xgb_model)
+plot(xgb_model)  # Visualize performance across hyperparameters
+
+```
+
+# Ensemble Model
+
+```{r}
+# Define a list of models to combine
+models <- list(
+  glm = caretModelSpec(method = "glm"),        # Logistic Regression
+  rf = caretModelSpec(method = "rf"),         # Random Forest
+  xgb = caretModelSpec(method = "xgbTree")    # XGBoost
+)
+
+# TrainControl for ensemble
+ctrl_ensemble <- trainControl(
+  method = "repeatedcv",
+  number = 10,
+  repeats = 3,
+  classProbs = TRUE,
+  summaryFunction = twoClassSummary
+)
+
+# Train the ensemble
+set.seed(123)
+ensemble_model <- caretList(
+  x = train_predictor,
+  y = train_outcome,
+  trControl = ctrl_ensemble,
+  metric = "ROC",
+  tuneList = models
+)
+
+# Ensemble stacking
+set.seed(123)
+stacked_model <- caretStack(
+  ensemble_model,
+  method = "glm",  # Logistic Regression as meta-learner
+  metric = "ROC",
+  trControl = ctrl
+)
+
+# Print and summarize the stacked model
+print(stacked_model)
+
+```
+
+The ensemble achieves high predictive performance with an excellent ROC of 0.961, combining the strengths of the base models. High sensitivity and specificity indicate a balanced performance on both classes.
+
+```{r}
+# Generate ROC curves for individual models
+# Predict probabilities for XGBoost
+xgb_probs <- predict(xgb_model, newdata = test_predictor, type = "prob")[, "yes"]
+
+# Generate ROC curve
+xgb_roc <- roc(test_outcome, xgb_probs)
+plot(xgb_roc, col = "blue", main = "ROC Curves for Models")
+auc_xgb <- auc(xgb_roc)
+cat("AUC for XGBoost: ", auc_xgb, "\n")
+```
+
+Bar Plot of Variable Importance for XG Boost
+
+```{r}
+# Extract variable importance for XGBoost
+xgb_var_importance <- varImp(xgb_model)
+
+# Plot variable importance
+plot(xgb_var_importance, main = "Variable Importance - XGBoost")
+
+```
+
+Compare Ensenble and Stacked Performance
+
+```{r}
+# Predict probabilities using individual base models
+rf_probs <- predict(ensemble_model$rf, newdata = test_predictor, type = "prob")[, "yes"]
+xgb_probs <- predict(ensemble_model$xgb, newdata = test_predictor, type = "prob")[, "yes"]
+
+# Combine probabilities from base models (e.g., averaging)
+stacked_probs <- (rf_probs + xgb_probs) / 2
+
+# Generate the ROC curve for the stacked model
+stacked_roc <- roc(test_outcome, stacked_probs)
+
+# Plot the ROC curve
+plot(stacked_roc, col = "red", main = "ROC Curve for Stacked Model")
+auc_stacked <- auc(stacked_roc)
+cat("AUC for Stacked Model: ", auc_stacked, "\n")
+
+```
+
+```{r}
+str(test_outcome)
+length(stacked_probs) == length(test_outcome)
+head(stacked_probs)
+
+
+# Generate ROC curve for XGBoost
+xgb_roc <- roc(test_outcome, xgb_probs)
+
+# Generate ROC curve for Random Forest
+rf_roc <- roc(test_outcome, rf_probs)
+
+# Plot the ROC curves
+plot(xgb_roc, col = "blue", main = "ROC Curve Comparison")
+plot(rf_roc, col = "green", add = TRUE)
+plot(stacked_roc, col = "red", add = TRUE)
+
+# Add a legend
+legend("bottomright", 
+       legend = c("XGBoost", "Random Forest", "Stacked Model"), 
+       col = c("blue", "green", "red"), 
+       lty = 1)
+
+```
